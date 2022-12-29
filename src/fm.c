@@ -65,6 +65,12 @@
 
 #define S14TOS16(VAL) ((int16_t) ((VAL&0x2000)?((VAL)-0x4000):(VAL)))
 
+// Hi ha un poc de cacau amb la nomenclatura dels slots
+#define SLOT1 0
+#define SLOT2 2
+#define SLOT3 1
+#define SLOT4 3
+
 
 
 
@@ -1046,7 +1052,7 @@ op_clock (
       op->eg.cc= 0;
     }
   att= op_eg_ssg_get_attenuation ( op );
-
+  
   // Aplica total level
   att+= op->tlevel;
   
@@ -1062,7 +1068,7 @@ op_clock (
       am_att= (am_att<<1) >> (LFO_AM_SHIFT[chn->ams]);
       att+= am_att;
     }
-
+  
   // Comprova que l'atenuació no supera el màxim
   if ( att > EG_MAX_ATTENUATION )
     att= EG_MAX_ATTENUATION;
@@ -1072,18 +1078,18 @@ op_clock (
   sin_ind= (uint8_t) (phase&0xFF);
   if ( phase&0x100 ) sin_ind= ~sin_ind;
   out_att= SIN_TABLE[sin_ind] + (att<<2);
-
+  
   // Db a lineal
   // out és un valor de 13bits
   w= (uint8_t) (out_att>>8);
   f= (uint8_t) (out_att&0xFF);
   out= (POW_TABLE[f]<<2)>>w;
-
+  
   // Aplica signe (Complement a 2)
   // out és un valor de 14bits amb signe
-  if ( phase&0x200 )
+  if ( phase&0x200 && out != 0 )
     out= 0x4000 - out;
-
+  
   op->out= out;
   
 } // end op_clock
@@ -1236,19 +1242,19 @@ channel_clock_alg0 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), OUT2PHASEMOD(chn->slots[0].out) );
+  op_clock ( chn, &(chn->slots[SLOT2]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
   
   // S3
-  op_clock ( chn, &(chn->slots[2]), OUT2PHASEMOD(chn->slots[1].out) );
+  op_clock ( chn, &(chn->slots[SLOT3]), OUT2PHASEMOD(chn->slots[SLOT2].out) );
   
   // S4
-  op_clock ( chn, &(chn->slots[3]), OUT2PHASEMOD(chn->slots[2].out) );
-  chn->out= S14TOS16(chn->slots[3].out);
+  op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT3].out) );
+  chn->out= S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg0
 
@@ -1267,20 +1273,20 @@ channel_clock_alg1 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT2]), 0 );
   
   // S3
-  s1_s2= S14TOS16(chn->slots[0].out) + S14TOS16(chn->slots[1].out);
-  op_clock ( chn, &(chn->slots[2]), OUT2PHASEMOD(s1_s2) );
+  s1_s2= S14TOS16(chn->slots[SLOT1].out) + S14TOS16(chn->slots[SLOT2].out);
+  op_clock ( chn, &(chn->slots[SLOT3]), OUT2PHASEMOD(s1_s2) );
   
   // S4
-  op_clock ( chn, &(chn->slots[3]), OUT2PHASEMOD(chn->slots[2].out) );
-  chn->out= S14TOS16(chn->slots[3].out);
+  op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT3].out) );
+  chn->out= S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg1
 
@@ -1299,20 +1305,20 @@ channel_clock_alg2 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT2]), 0 );
 
   // S3
-  op_clock ( chn, &(chn->slots[2]), OUT2PHASEMOD(chn->slots[1].out) );
+  op_clock ( chn, &(chn->slots[SLOT3]), OUT2PHASEMOD(chn->slots[SLOT2].out) );
   
   // S4
-  s1_s3= S14TOS16(chn->slots[0].out) + S14TOS16(chn->slots[2].out);
-  op_clock ( chn, &(chn->slots[3]), OUT2PHASEMOD(s1_s3) );
-  chn->out= S14TOS16(chn->slots[3].out);
+  s1_s3= S14TOS16(chn->slots[SLOT1].out) + S14TOS16(chn->slots[SLOT3].out);
+  op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(s1_s3) );
+  chn->out= S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg2
 
@@ -1331,20 +1337,20 @@ channel_clock_alg3 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), OUT2PHASEMOD(chn->slots[0].out) );
+  op_clock ( chn, &(chn->slots[SLOT2]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
 
   // S3
-  op_clock ( chn, &(chn->slots[2]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT3]), 0 );
   
   // S4
-  s2_s3= S14TOS16(chn->slots[1].out) + S14TOS16(chn->slots[2].out);
-  op_clock ( chn, &(chn->slots[3]), OUT2PHASEMOD(s2_s3) );
-  chn->out= S14TOS16(chn->slots[3].out);
+  s2_s3= S14TOS16(chn->slots[SLOT2].out) + S14TOS16(chn->slots[SLOT3].out);
+  op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(s2_s3) );
+  chn->out= S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg3
 
@@ -1360,21 +1366,21 @@ channel_clock_alg4 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), OUT2PHASEMOD(chn->slots[0].out) );
+  op_clock ( chn, &(chn->slots[SLOT2]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
   
   // S3
-  op_clock ( chn, &(chn->slots[2]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT3]), 0 );
   
   // S4
-  op_clock ( chn, &(chn->slots[3]), OUT2PHASEMOD(chn->slots[2].out) );
+  op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT3].out) );
 
   // Eixida
-  chn->out= S14TOS16(chn->slots[1].out) + S14TOS16(chn->slots[3].out);
+  chn->out= S14TOS16(chn->slots[SLOT2].out) + S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg4
 
@@ -1390,24 +1396,24 @@ channel_clock_alg5 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), OUT2PHASEMOD(chn->slots[0].out) );
+  op_clock ( chn, &(chn->slots[SLOT2]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
   
   // S3
-  op_clock ( chn, &(chn->slots[2]), OUT2PHASEMOD(chn->slots[0].out) );
+  op_clock ( chn, &(chn->slots[SLOT3]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
   
   // S4
-  op_clock ( chn, &(chn->slots[3]), OUT2PHASEMOD(chn->slots[0].out) );
+  op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
 
   // Eixida
   chn->out=
-    S14TOS16(chn->slots[1].out) +
-    S14TOS16(chn->slots[2].out) +
-    S14TOS16(chn->slots[3].out);
+    S14TOS16(chn->slots[SLOT2].out) +
+    S14TOS16(chn->slots[SLOT3].out) +
+    S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg5
 
@@ -1423,24 +1429,24 @@ channel_clock_alg6 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), OUT2PHASEMOD(chn->slots[0].out) );
+  op_clock ( chn, &(chn->slots[SLOT2]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
   
   // S3
-  op_clock ( chn, &(chn->slots[2]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT3]), 0 );
   
   // S4
-  op_clock ( chn, &(chn->slots[3]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT4]), 0 );
 
   // Eixida
   chn->out=
-    S14TOS16(chn->slots[1].out) +
-    S14TOS16(chn->slots[2].out) +
-    S14TOS16(chn->slots[3].out);
+    S14TOS16(chn->slots[SLOT2].out) +
+    S14TOS16(chn->slots[SLOT3].out) +
+    S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg6
 
@@ -1456,25 +1462,25 @@ channel_clock_alg7 (
   //
   
   // S1
-  op_clock ( chn, &(chn->slots[0]), channel_calc_feedback ( chn ) );
+  op_clock ( chn, &(chn->slots[SLOT1]), channel_calc_feedback ( chn ) );
   chn->fb_buf[0]= chn->fb_buf[1];
-  chn->fb_buf[1]= chn->slots[0].out;
+  chn->fb_buf[1]= chn->slots[SLOT1].out;
   
   // S2
-  op_clock ( chn, &(chn->slots[1]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT2]), 0 );
   
   // S3
-  op_clock ( chn, &(chn->slots[2]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT3]), 0 );
   
   // S4
-  op_clock ( chn, &(chn->slots[3]), 0 );
+  op_clock ( chn, &(chn->slots[SLOT4]), 0 );
   
   // Eixida
   chn->out=
-    S14TOS16(chn->slots[0].out) +
-    S14TOS16(chn->slots[1].out) +
-    S14TOS16(chn->slots[2].out) +
-    S14TOS16(chn->slots[3].out);
+    S14TOS16(chn->slots[SLOT1].out) +
+    S14TOS16(chn->slots[SLOT2].out) +
+    S14TOS16(chn->slots[SLOT3].out) +
+    S14TOS16(chn->slots[SLOT4].out);
   
 } // end channel_clock_alg7
 
@@ -1520,7 +1526,7 @@ channel_init (
   channel_set_fnum1 ( chn, 0x00, init );
   channel_set_fnum2_block ( chn, 0x00, init );
   channel_set_fb_alg ( chn, 0x00 );
-  channel_set_lr_ams_pms ( chn, 0x00, init );
+  channel_set_lr_ams_pms ( chn, 0xC0, init );
   
 } // end channel_init
 
@@ -1802,7 +1808,7 @@ run_fm_cycle (void)
   if ( chn->r ) r+= chn6_out;
   l/= 6;
   r/= 6;
-
+  
   // Envia mostra al mesclador.
   MD_audio_fm_play ( (int16_t) l, (int16_t) r );
   
@@ -2006,19 +2012,19 @@ MD_fm_part1_write_data (
         case 0x24: timers_set_timera_high ( data ); break;
         case 0x25: timers_set_timera_low ( data ); break;
         case 0x26: timers_set_timerb ( data ); break;
-        case 0x27:set_timers_ch3mode ( data, false ); break;
+        case 0x27: set_timers_ch3mode ( data, false ); break;
         case 0x28:
           c= data&0x03;
           if ( c == 3 ) break;
           if( data&0x04 ) c+= 3;
-          if ( data&0x10 ) op_eg_keyon  ( &(_chns[c].slots[0]) );
-          else             op_eg_keyoff ( &(_chns[c].slots[0]) );
-          if ( data&0x20 ) op_eg_keyon  ( &(_chns[c].slots[1]) );
-          else             op_eg_keyoff ( &(_chns[c].slots[1]) );
-          if ( data&0x40 ) op_eg_keyon  ( &(_chns[c].slots[2]) );
-          else             op_eg_keyoff ( &(_chns[c].slots[2]) );
-          if ( data&0x80 ) op_eg_keyon  ( &(_chns[c].slots[3]) );
-          else             op_eg_keyoff ( &(_chns[c].slots[3]) );
+          if ( data&0x10 ) op_eg_keyon  ( &(_chns[c].slots[SLOT1]) );
+          else             op_eg_keyoff ( &(_chns[c].slots[SLOT1]) );
+          if ( data&0x20 ) op_eg_keyon  ( &(_chns[c].slots[SLOT2]) );
+          else             op_eg_keyoff ( &(_chns[c].slots[SLOT2]) );
+          if ( data&0x40 ) op_eg_keyon  ( &(_chns[c].slots[SLOT3]) );
+          else             op_eg_keyoff ( &(_chns[c].slots[SLOT3]) );
+          if ( data&0x80 ) op_eg_keyon  ( &(_chns[c].slots[SLOT4]) );
+          else             op_eg_keyoff ( &(_chns[c].slots[SLOT4]) );
           break;
         case 0x2a: dac_set_dac ( data ); break;
         case 0x2b: dac_set_dac_enabled ( data ); break;
