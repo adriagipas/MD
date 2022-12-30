@@ -58,12 +58,12 @@
 
 #define EG_MAX_ATTENUATION 0x3FF
 
+#define S14TOS16(VAL) ((int16_t) ((VAL&0x2000)?((VAL)-0x4000):(VAL)))
+
 // OUT és un valor de 14bits amb signe i passa a un valor de 10 bits
 // ¿amb signe?. En qualsevol cas la transformació consisteix en
 // quedar-se amb els bits 10-1 del valor de 14 bits.
 #define OUT2PHASEMOD(VAL) ((VAL>>1)&0x3FF)
-
-#define S14TOS16(VAL) ((int16_t) ((VAL&0x2000)?((VAL)-0x4000):(VAL)))
 
 // Hi ha un poc de cacau amb la nomenclatura dels slots
 #define SLOT1 0
@@ -370,6 +370,7 @@ static const int LFO_AM_SHIFT[4]= {
 typedef struct
 {
 
+  bool    keyon;   // Inidica que ja ha sigut activat.
   int16_t out;     // Eixida (valor 14bit amb signe)
   int32_t phase;   // Fase actual (20 bits)
   int32_t pg;      // Increment que genera el Phase Generator
@@ -1005,9 +1006,14 @@ op_eg_keyon (
              )
 {
 
-  op->eg.out= op->eg.ar_rate >= 62 ? 0 : EG_MAX_ATTENUATION;
-  op->eg.state= EG_ATTACK;
-  op->eg.ssg.inverted= false;
+  if ( !op->keyon )
+    {
+      op->eg.out= op->eg.ar_rate >= 62 ? 0 : EG_MAX_ATTENUATION;
+      op->eg.state= EG_ATTACK;
+      op->eg.ssg.inverted= false;
+      op->phase= 0;
+      op->keyon= true;
+    }
   
 } // end op_eg_keyon
 
@@ -1017,12 +1023,16 @@ op_eg_keyoff (
               op_t *op
               )
 {
-  
-  op->eg.state= EG_RELEASE;
-  // NOTA!!! Açò no ho acabe d'entendre. Ni tan sols sé si he seguit
-  // bé les instruccions de Nemesis en aquest punt.
-  if ( op->eg.ssg.enabled && (op->eg.ssg.inverted ^ op->eg.ssg.attack) )
-    op->eg.out= 0x200 - op->eg.out;
+
+  if ( op->keyon )
+    {
+      op->eg.state= EG_RELEASE;
+      // NOTA!!! Açò no ho acabe d'entendre. Ni tan sols sé si he seguit
+      // bé les instruccions de Nemesis en aquest punt.
+      if ( op->eg.ssg.enabled && (op->eg.ssg.inverted ^ op->eg.ssg.attack) )
+        op->eg.out= 0x200 - op->eg.out;
+      op->keyon= false;
+    }
   
 } // end op_eg_keyoff
 
@@ -1103,6 +1113,7 @@ op_init (
          )
 {
 
+  op->keyon= false;
   op->out= 0;
   op->phase= 0;
   op->eg.out= EG_MAX_ATTENUATION;
@@ -1221,7 +1232,7 @@ channel_calc_feedback (
   
   if ( chn->feedback != 0 )
     {
-      ret= (chn->fb_buf[0] + chn->fb_buf[1])&0x3FFF;
+      ret= (chn->fb_buf[0] + chn->fb_buf[1]);
       ret= (ret>>(10-chn->feedback))&0x3FF;
     }
   else ret= 0;
@@ -1798,12 +1809,12 @@ run_fm_cycle (void)
     {
       chn= &(_chns[i]);
       channel_clock ( chn );
-      if ( chn->l ) l+= (int32_t) chn->out;
-      if ( chn->r ) r+= (int32_t) chn->out;
+      if ( chn->l ) l+= 4*((int32_t) chn->out);
+      if ( chn->r ) r+= 4*((int32_t) chn->out);
     }
   chn= &(_chns[i]);
   channel_clock ( chn );
-  chn6_out= (int32_t) (_dac.enabled ? _dac.out : chn->out);
+  chn6_out= 4*((int32_t) (_dac.enabled ? _dac.out : chn->out));
   if ( chn->l ) l+= chn6_out;
   if ( chn->r ) r+= chn6_out;
   l/= 6;
