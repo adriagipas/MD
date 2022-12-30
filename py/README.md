@@ -23,9 +23,10 @@ Per a instal·lar el mòdul
 pip install .
 ```
 
-Un exemple bàsic d'ús es pot trobar en **exemple.py**:
+Un exemple bàsic d'ús es pot trobar en **exemple_pal.py** (simulant
+una consola PAL) o **exemple_ntsc.py* (simulant una consola NTSC):
 ```
-python3 exemple.py ROM.md
+python3 exemple_pal.py ROM.md
 ```
 
 En la carpeta **debug** hi ha un script utilitzat per a depurar.
