@@ -54,8 +54,6 @@
 /* MACROS */
 /**********/
 
-#define PI 3.14159265359
-
 #define EG_MAX_ATTENUATION 0x3FF
 
 #define S14TOS16(VAL) ((int16_t) ((VAL&0x2000)?((VAL)-0x4000):(VAL)))
@@ -70,6 +68,13 @@
 #define SLOT2 2
 #define SLOT3 1
 #define SLOT4 3
+
+// NOTA!!! Estos cicles són aproximacions que he fet jo partint que la
+// documentació que hi ha per ahí diu que el TIMERA té una precisió de
+// ~0.018ms en NTSC i de la documentació del YM2608. TIMER B sempre és
+// TIMERA_CC*16
+#define TIMERA_CC 138
+#define TIMERB_CC (TIMERA_CC*16)
 
 
 
@@ -697,10 +702,10 @@ op_update_pg_keycode (
           if ( pm_counter&0x10 )
             pm_inc= -pm_inc;
           pm_inc>>= 9;
-
+          
           // Aplica
           fnum= (fnum + (uint16_t) pm_inc)&0x7FF;
-            
+          
         }
       
     }
@@ -825,8 +830,6 @@ op_set_ssg_eg (
                )
 {
 
-  if ( val&0x0F )
-    _warning ( _udata, "[FM] s'ha escrit un valor distint de 0 en SSG-EG" );
   op->regs.ssg_eg= val;
   op->eg.ssg.enabled= (val&0x08)!=0;
   op->eg.ssg.attack= (val&0x04)!=0;
@@ -1608,7 +1611,7 @@ dac_set_dac(
             const uint8_t val
             )
 {
-
+  
   _dac.regs.dac= val;
   // Passe d'unsigned 8bit i després multiplica per 64 (passa a
   // 14bit), però representat amb 16bits.
@@ -1735,8 +1738,8 @@ timers_timera_clock (void)
   
   if ( _timers.a_enabled )
     {
-      _timers.a_counter= (_timers.a_counter-1)&0x3FF;
-      if ( _timers.a_counter == 0x3FF )
+      _timers.a_counter= (_timers.a_counter+1)&0x3FF;
+      if ( _timers.a_counter == 0 )
         {
           _timers.a_counter= _timers.a_val;
           if ( _timers.a_set_flag_enabled )
@@ -1755,11 +1758,11 @@ timers_timera_clock (void)
 static void
 timers_timerb_clock (void)
 {
-
+  
   if ( _timers.b_enabled )
     {
-      --_timers.b_counter;
-      if ( _timers.b_counter == 0xFF )
+      ++_timers.b_counter;
+      if ( _timers.b_counter == 0x00 )
         {
           _timers.b_counter= _timers.b_val;
           if ( _timers.b_set_flag_enabled )
@@ -1798,7 +1801,7 @@ run_fm_cycle (void)
 {
 
   int i;
-  int32_t l,r,chn6_out;
+  int32_t l,r,val;
   channel_t *chn;
   
   
@@ -1809,16 +1812,23 @@ run_fm_cycle (void)
     {
       chn= &(_chns[i]);
       channel_clock ( chn );
-      if ( chn->l ) l+= 4*((int32_t) chn->out);
-      if ( chn->r ) r+= 4*((int32_t) chn->out);
+      val= (int32_t) chn->out;
+      if      ( val > 8191 )  val= 8191;
+      else if ( val < -8192 ) val= -8192;
+      if ( chn->l ) l+= val;
+      if ( chn->r ) r+= val;
     }
   chn= &(_chns[i]);
   channel_clock ( chn );
-  chn6_out= 4*((int32_t) (_dac.enabled ? _dac.out : chn->out));
-  if ( chn->l ) l+= chn6_out;
-  if ( chn->r ) r+= chn6_out;
-  l/= 6;
-  r/= 6;
+  val= (int32_t) (_dac.enabled ? _dac.out : chn->out);
+  if      ( val > 8191 )  val= 8191;
+  else if ( val < -8192 ) val= -8192;
+  if ( chn->l ) l+= val;
+  if ( chn->r ) r+= val;
+  if      ( l > 32767)   l= 32767;
+  else if ( l < -32768 ) l= -32768;
+  if      ( r > 32767)   r= 32767;
+  else if ( r < -32768 ) r= -32768;
   
   // Envia mostra al mesclador.
   MD_audio_fm_play ( (int16_t) l, (int16_t) r );
@@ -1870,12 +1880,12 @@ write_channel_reg (
     {
     case 0xa0:
       if ( nch == 2 && chn->op_freqs ) // Cas especial Canal 3
-        op_set_fnum1 ( chn, &(_chns[2].slots[0]), data, false );
+        op_set_fnum1 ( chn, &(_chns[2].slots[SLOT1]), data, false );
       channel_set_fnum1 ( chn, data, false );
       break;
     case 0xa4:
       if ( nch == 2 && chn->op_freqs ) // Cas especial Canal 3
-        op_set_fnum2_block ( chn, &(_chns[2].slots[0]), data, false );
+        op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT1]), data, false );
       channel_set_fnum2_block ( chn, data, false );
       break;
     case 0xa8:
@@ -1885,11 +1895,33 @@ write_channel_reg (
       // 2 - Operador 4
       // L'operador 1 està en la posició habitual per al channel 3.
       if ( nch >= 3 ) return;
-      op_set_fnum1 ( &_chns[2], &(_chns[2].slots[nch+1]), data, false );
+      switch ( nch )
+        {
+        case 0:
+          op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT2]), data, false );
+          break;
+        case 1:
+          op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT3]), data, false );
+          break;
+        case 2:
+          op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT4]), data, false );
+          break;
+        }
       break;
     case 0xac:
       if ( nch >= 3 ) return;
-      op_set_fnum2_block ( chn, &(_chns[2].slots[nch+1]), data, false );
+      switch ( nch )
+        {
+        case 0:
+          op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT2]), data, false );
+          break;
+        case 1:
+          op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT3]), data, false );
+          break;
+        case 2:
+          op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT4]), data, false );
+          break;
+        }
       break;
     case 0xb0: channel_set_fb_alg ( chn, data ); break;
     case 0xb4: channel_set_lr_ams_pms ( chn, data, false ); break;
@@ -1904,17 +1936,17 @@ clock (void)
 {
 
   // Timer A abans
-  while ( _timing.timerA_cc >= 72 )
+  while ( _timing.timerA_cc >= TIMERA_CC )
     {
       timers_timera_clock ();
-      _timing.timerA_cc-= 72;
+      _timing.timerA_cc-= TIMERA_CC;
     }
 
   // Timer B abans
-  while ( _timing.timerB_cc >= 1152 )
+  while ( _timing.timerB_cc >= TIMERB_CC )
     {
       timers_timerb_clock ();
-      _timing.timerB_cc-= 1152;
+      _timing.timerB_cc-= TIMERB_CC;
     }
   
   // FM
@@ -2133,10 +2165,14 @@ MD_fm_reset (void)
 MDu8
 MD_fm_status (void)
 {
+
+  MDu8 ret;
   
   clock ();
+  ret= (MDu8) _timers.status;
+
   
-  return (MDu8) _timers.status;
+  return ret;
   
 } // end MD_fm_status
 

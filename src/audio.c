@@ -116,7 +116,7 @@ render_samples (void)
 
   double sample;
   int i,pos;
-  int32_t psg_sample,fm_left,fm_right;
+  int32_t psg_sample,fm_left,fm_right,val;
   
   
   while ( _fm.N > 0 && _psg.N > FM_CYCLES )
@@ -131,7 +131,7 @@ render_samples (void)
         }
       sample/= FM_CYCLES;
       _psg.N-= FM_CYCLES;
-      psg_sample= (int32_t) ((sample*32768) + 0.5);
+      psg_sample= (int32_t) ((sample*8192*4*0.75) + 0.5);
       
       // Obté mostres FM.
       fm_left= (int32_t) _fm.l[_fm.p];
@@ -140,8 +140,14 @@ render_samples (void)
       --_fm.N;
       
       // Genera eixida
-      _out.v[_out.N++]= (MDs16) ((6*fm_left + psg_sample)/7);
-      _out.v[_out.N++]= (MDs16) ((6*fm_right + psg_sample)/7);
+      val= fm_left + psg_sample;
+      if      ( val > 32767)   val= 32767;
+      else if ( val < -32768 ) val= -32768;
+      _out.v[_out.N++]= (MDs16) val;
+      val= fm_right + psg_sample;
+      if      ( val > 32767)   val= 32767;
+      else if ( val < -32768 ) val= -32768;
+      _out.v[_out.N++]= (MDs16) val;
       if ( _out.N == MD_FM_BUFFER_SIZE*2 )
         {
           _play_sound ( _out.v, _udata );
