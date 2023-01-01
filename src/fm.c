@@ -1825,7 +1825,6 @@ run_fm_cycle (void)
   l= r= 0;
   lfo_clock ();
   for ( i= 0; i < 5; ++i )
-    //if(i==3)
     {
       chn= &(_chns[i]);
       channel_clock ( chn );
@@ -1835,7 +1834,6 @@ run_fm_cycle (void)
       if ( chn->l ) l+= val;
       if ( chn->r ) r+= val;
     }
-
   chn= &(_chns[i]);
   channel_clock ( chn );
   val= 4*(_dac.enabled ? _dac.out : chn->out);
@@ -1843,7 +1841,6 @@ run_fm_cycle (void)
   else if ( val < -32768 ) val= -32768;
   if ( chn->l ) l+= val;
   if ( chn->r ) r+= val;
-
   l/= 6;
   r/= 6;
   
