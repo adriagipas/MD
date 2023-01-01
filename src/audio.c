@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 Adrià Giménez Pastor.
+ * Copyright 2022-2023 Adrià Giménez Pastor.
  *
  * This file is part of adriagipas/MD.
  *
@@ -131,7 +131,7 @@ render_samples (void)
         }
       sample/= FM_CYCLES;
       _psg.N-= FM_CYCLES;
-      psg_sample= (int32_t) ((sample*8192*4*0.75) + 0.5);
+      psg_sample= (int32_t) ((sample*8192*4) + 0.5);
       
       // Obté mostres FM.
       fm_left= (int32_t) _fm.l[_fm.p];
@@ -140,13 +140,9 @@ render_samples (void)
       --_fm.N;
       
       // Genera eixida
-      val= fm_left + psg_sample;
-      if      ( val > 32767)   val= 32767;
-      else if ( val < -32768 ) val= -32768;
+      val= (6*fm_left + psg_sample)/7;
       _out.v[_out.N++]= (MDs16) val;
-      val= fm_right + psg_sample;
-      if      ( val > 32767)   val= 32767;
-      else if ( val < -32768 ) val= -32768;
+      val= (6*fm_right + psg_sample)/7;
       _out.v[_out.N++]= (MDs16) val;
       if ( _out.N == MD_FM_BUFFER_SIZE*2 )
         {
@@ -268,7 +264,10 @@ MD_audio_save_state (
         	     )
 {
   
-  printf("AUDIO TODO\n");
+  SAVE ( _psg );
+  SAVE ( _fm );
+  SAVE ( _out );
+  
   return 0;
   
 } // end MD_audio_save_state
@@ -280,7 +279,15 @@ MD_audio_load_state (
         	     )
 {
   
-  printf("AUDIO TODO\n");
+  LOAD ( _psg );
+  CHECK ( _psg.p >= 0 && _psg.p < PSG_BUF_SIZE );
+  CHECK ( _psg.N >= 0 && _psg.N <= PSG_BUF_SIZE );
+  LOAD ( _fm );
+  CHECK ( _fm.p >= 0 && _fm.p < BUF_SIZE );
+  CHECK ( _fm.N >= 0 && _fm.N <= BUF_SIZE );
+  LOAD ( _out );
+  CHECK ( _out.N >= 0 && _out.N < MD_FM_BUFFER_SIZE*2 );
+  
   return 0;
   
 } // end MD_audio_load_state

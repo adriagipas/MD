@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 Adrià Giménez Pastor.
+ * Copyright 2012-2023 Adrià Giménez Pastor.
  *
  * This file is part of adriagipas/MD.
  *
@@ -1171,6 +1171,43 @@ MD_load_state_ (
 
 
 static PyObject *
+MD_save_state_ (
+        	PyObject *self,
+        	PyObject *args
+        	)
+{
+
+  const char *fn;
+  FILE *f;
+  int ret;
+  
+  
+  CHECK_INITIALIZED;
+  CHECK_ROM;
+
+  if ( !PyArg_ParseTuple ( args, "s", &fn ) )
+    return NULL;
+
+  f= fopen ( fn, "wb" );
+  if ( f == NULL )
+    {
+      PyErr_Format ( PyExc_RuntimeError, "cannot open '%s'", fn );
+      return NULL;
+    }
+  ret= MD_save_state ( f );
+  fclose ( f );
+  if ( ret != 0 )
+    {
+      PyErr_Format ( PyExc_RuntimeError, "cannot save state into '%s'", fn );
+      return NULL;
+    }
+
+  Py_RETURN_NONE;
+  
+} // end MD_save_state_
+
+
+static PyObject *
 MD_loop_module (
         	PyObject *self,
         	PyObject *args
@@ -1353,6 +1390,8 @@ static PyMethodDef MDMethods[]=
       "Initialize the module" },
     { "load_state", MD_load_state_, METH_VARARGS,
       "Load state from file" },
+    { "save_state", MD_save_state_, METH_VARARGS,
+      "Save state into file" },
     { "loop", MD_loop_module, METH_VARARGS,
       "Run the simulator into a loop and block" },
     { "set_rom", MD_set_rom, METH_VARARGS,

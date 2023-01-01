@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 Adrià Giménez Pastor.
+ * Copyright 2022-2023 Adrià Giménez Pastor.
  *
  * This file is part of adriagipas/MD.
  *
@@ -54,11 +54,18 @@
 /* MACROS */
 /**********/
 
+#define SAVE(VAR)                                               \
+  if ( fwrite ( &(VAR), sizeof(VAR), 1, f ) != 1 ) return -1
+
+#define LOAD(VAR)                                               \
+  if ( fread ( &(VAR), sizeof(VAR), 1, f ) != 1 ) return -1
+
+#define CHECK(COND)                             \
+  if ( !(COND) ) return -1;
+
 #define EG_MAX_ATTENUATION 0x3FF
 
-#define S14TOS16(VAL) ((int16_t) ((VAL&0x2000)?((VAL)-0x4000):(VAL)))
-
-// OUT és un valor de 14bits amb signe i passa a un valor de 10 bits
+// OUT és un valor d'almenys 14bits amb signe i passa a un valor de 10 bits
 // ¿amb signe?. En qualsevol cas la transformació consisteix en
 // quedar-se amb els bits 10-1 del valor de 14 bits.
 #define OUT2PHASEMOD(VAL) ((VAL>>1)&0x3FF)
@@ -376,7 +383,7 @@ typedef struct
 {
 
   bool    keyon;   // Inidica que ja ha sigut activat.
-  int16_t out;     // Eixida (valor 14bit amb signe)
+  int32_t out;     // Eixida. El valor estarà entre [-8192,8191]
   int32_t phase;   // Fase actual (20 bits)
   int32_t pg;      // Increment que genera el Phase Generator
   int     keycode; // Key code (Block|Note)
@@ -449,8 +456,8 @@ typedef struct
   uint8_t ams;       // Amplitude Modulation Sensivity (LFO), 0..2
   uint8_t alg;       // Algoritme.
   uint8_t feedback;  // Tipus de feedback.
-  int16_t fb_buf[2]; // Buffer per a feedback
-  int16_t out;       // Eixida en 16bits amb signe
+  int32_t fb_buf[2]; // Buffer per a feedback
+  int32_t out;       // Eixida en 16bits amb signe
   bool    l,r;       // Indica si el canal es mostra o no per els
                      // altaveus corresponents.
   bool    op_freqs;  // Freqüències d'operacions.
@@ -506,7 +513,7 @@ static struct
 // DAC.
 static struct
 {
-  int16_t out;
+  int32_t out;
   bool    enabled;
   struct
   {
@@ -861,7 +868,10 @@ op_set_sl_rr (
 
   op->regs.sl_rr= val;
   op_update_eg_rr_rate ( op );
-  op->eg.sustain= (((int16_t) (val>>4))<<6) | 0x020;
+  op->eg.sustain= (int16_t) (val>>4);
+  if ( op->eg.sustain == 0xF )
+    op->eg.sustain|= 0x01;
+  op->eg.sustain<<= 5;
   
 } // end op_set_sl_rr
 
@@ -1008,7 +1018,7 @@ op_eg_keyon (
              op_t *op
              )
 {
-
+  
   if ( !op->keyon )
     {
       op->eg.out= op->eg.ar_rate >= 62 ? 0 : EG_MAX_ATTENUATION;
@@ -1100,10 +1110,9 @@ op_clock (
   
   // Aplica signe (Complement a 2)
   // out és un valor de 14bits amb signe
+  op->out= (int32_t) out;
   if ( phase&0x200 && out != 0 )
-    out= 0x4000 - out;
-  
-  op->out= out;
+    op->out= -op->out;
   
 } // end op_clock
 
@@ -1231,12 +1240,13 @@ channel_calc_feedback (
 {
 
   int16_t ret;
+  int32_t tmp;
   
   
   if ( chn->feedback != 0 )
     {
-      ret= (chn->fb_buf[0] + chn->fb_buf[1]);
-      ret= (ret>>(10-chn->feedback))&0x3FF;
+      tmp= chn->fb_buf[0] + chn->fb_buf[1];
+      ret= (tmp>>(10-chn->feedback))&0x3FF;
     }
   else ret= 0;
   
@@ -1268,7 +1278,7 @@ channel_clock_alg0 (
   
   // S4
   op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT3].out) );
-  chn->out= S14TOS16(chn->slots[SLOT4].out);
+  chn->out= chn->slots[SLOT4].out;
   
 } // end channel_clock_alg0
 
@@ -1279,7 +1289,7 @@ channel_clock_alg1 (
                     )
 {
 
-  int16_t s1_s2;
+  int32_t s1_s2;
 
   
   //
@@ -1295,12 +1305,12 @@ channel_clock_alg1 (
   op_clock ( chn, &(chn->slots[SLOT2]), 0 );
   
   // S3
-  s1_s2= S14TOS16(chn->slots[SLOT1].out) + S14TOS16(chn->slots[SLOT2].out);
+  s1_s2= chn->slots[SLOT1].out + chn->slots[SLOT2].out;
   op_clock ( chn, &(chn->slots[SLOT3]), OUT2PHASEMOD(s1_s2) );
   
   // S4
   op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT3].out) );
-  chn->out= S14TOS16(chn->slots[SLOT4].out);
+  chn->out= chn->slots[SLOT4].out;
   
 } // end channel_clock_alg1
 
@@ -1311,7 +1321,7 @@ channel_clock_alg2 (
                     )
 {
 
-  int16_t s1_s3;
+  int32_t s1_s3;
 
   
   //
@@ -1330,9 +1340,9 @@ channel_clock_alg2 (
   op_clock ( chn, &(chn->slots[SLOT3]), OUT2PHASEMOD(chn->slots[SLOT2].out) );
   
   // S4
-  s1_s3= S14TOS16(chn->slots[SLOT1].out) + S14TOS16(chn->slots[SLOT3].out);
+  s1_s3= chn->slots[SLOT1].out + chn->slots[SLOT3].out;
   op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(s1_s3) );
-  chn->out= S14TOS16(chn->slots[SLOT4].out);
+  chn->out= chn->slots[SLOT4].out;
   
 } // end channel_clock_alg2
 
@@ -1343,7 +1353,7 @@ channel_clock_alg3 (
                     )
 {
 
-  int16_t s2_s3;
+  int32_t s2_s3;
 
   
   //
@@ -1362,9 +1372,9 @@ channel_clock_alg3 (
   op_clock ( chn, &(chn->slots[SLOT3]), 0 );
   
   // S4
-  s2_s3= S14TOS16(chn->slots[SLOT2].out) + S14TOS16(chn->slots[SLOT3].out);
+  s2_s3= chn->slots[SLOT2].out + chn->slots[SLOT3].out;
   op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(s2_s3) );
-  chn->out= S14TOS16(chn->slots[SLOT4].out);
+  chn->out= chn->slots[SLOT4].out;
   
 } // end channel_clock_alg3
 
@@ -1394,7 +1404,7 @@ channel_clock_alg4 (
   op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT3].out) );
 
   // Eixida
-  chn->out= S14TOS16(chn->slots[SLOT2].out) + S14TOS16(chn->slots[SLOT4].out);
+  chn->out= chn->slots[SLOT2].out + chn->slots[SLOT4].out;
   
 } // end channel_clock_alg4
 
@@ -1424,10 +1434,10 @@ channel_clock_alg5 (
   op_clock ( chn, &(chn->slots[SLOT4]), OUT2PHASEMOD(chn->slots[SLOT1].out) );
 
   // Eixida
-  chn->out=
-    S14TOS16(chn->slots[SLOT2].out) +
-    S14TOS16(chn->slots[SLOT3].out) +
-    S14TOS16(chn->slots[SLOT4].out);
+  chn->out= 
+    chn->slots[SLOT2].out +
+    chn->slots[SLOT3].out +
+    chn->slots[SLOT4].out;
   
 } // end channel_clock_alg5
 
@@ -1458,9 +1468,9 @@ channel_clock_alg6 (
 
   // Eixida
   chn->out=
-    S14TOS16(chn->slots[SLOT2].out) +
-    S14TOS16(chn->slots[SLOT3].out) +
-    S14TOS16(chn->slots[SLOT4].out);
+    chn->slots[SLOT2].out +
+    chn->slots[SLOT3].out +
+    chn->slots[SLOT4].out;
   
 } // end channel_clock_alg6
 
@@ -1491,10 +1501,10 @@ channel_clock_alg7 (
   
   // Eixida
   chn->out=
-    S14TOS16(chn->slots[SLOT1].out) +
-    S14TOS16(chn->slots[SLOT2].out) +
-    S14TOS16(chn->slots[SLOT3].out) +
-    S14TOS16(chn->slots[SLOT4].out);
+    chn->slots[SLOT1].out +
+    chn->slots[SLOT2].out +
+    chn->slots[SLOT3].out +
+    chn->slots[SLOT4].out;
   
 } // end channel_clock_alg7
 
@@ -1614,8 +1624,8 @@ dac_set_dac(
   
   _dac.regs.dac= val;
   // Passe d'unsigned 8bit i després multiplica per 64 (passa a
-  // 14bit), però representat amb 16bits.
-  _dac.out= (((int16_t) ((uint16_t) val)) - 0x80)*64;
+  // 14bit), però representat amb 32bits.
+  _dac.out= (((int32_t) ((uint32_t) val)) - 0x80)*64;
   
 } // end dac_set_dac
 
@@ -1675,8 +1685,11 @@ set_timers_ch3mode (
   // --> Load
   if ( (val&0x01) != 0 )
     {
-      _timers.a_counter= _timers.a_val;
-      _timers.a_enabled= true;
+      if ( !_timers.a_enabled )
+        {
+          _timers.a_counter= _timers.a_val;
+          _timers.a_enabled= true;
+        }
     }
   else _timers.a_enabled= false;
   // --> Enable
@@ -1689,8 +1702,11 @@ set_timers_ch3mode (
   // --> Load
   if ( (val&0x02) != 0 )
     {
-      _timers.b_counter= _timers.b_val;
-      _timers.b_enabled= true;
+      if ( !_timers.b_enabled )
+        {
+          _timers.b_counter= _timers.b_val;
+          _timers.b_enabled= true;
+        }
     }
   else _timers.b_enabled= false;
   // --> Enable
@@ -1809,26 +1825,27 @@ run_fm_cycle (void)
   l= r= 0;
   lfo_clock ();
   for ( i= 0; i < 5; ++i )
+    //if(i==3)
     {
       chn= &(_chns[i]);
       channel_clock ( chn );
-      val= (int32_t) chn->out;
-      if      ( val > 8191 )  val= 8191;
-      else if ( val < -8192 ) val= -8192;
+      val= 4*chn->out;
+      if      ( val > 32767 )  val= 32767;
+      else if ( val < -32768 ) val= -32768;
       if ( chn->l ) l+= val;
       if ( chn->r ) r+= val;
     }
+
   chn= &(_chns[i]);
   channel_clock ( chn );
-  val= (int32_t) (_dac.enabled ? _dac.out : chn->out);
-  if      ( val > 8191 )  val= 8191;
-  else if ( val < -8192 ) val= -8192;
+  val= 4*(_dac.enabled ? _dac.out : chn->out);
+  if      ( val > 32767 )  val= 32767;
+  else if ( val < -32768 ) val= -32768;
   if ( chn->l ) l+= val;
   if ( chn->r ) r+= val;
-  if      ( l > 32767)   l= 32767;
-  else if ( l < -32768 ) l= -32768;
-  if      ( r > 32767)   r= 32767;
-  else if ( r < -32768 ) r= -32768;
+
+  l/= 6;
+  r/= 6;
   
   // Envia mostra al mesclador.
   MD_audio_fm_play ( (int16_t) l, (int16_t) r );
@@ -1879,47 +1896,47 @@ write_channel_reg (
   switch ( addr )
     {
     case 0xa0:
-      if ( nch == 2 && chn->op_freqs ) // Cas especial Canal 3
-        op_set_fnum1 ( chn, &(_chns[2].slots[SLOT1]), data, false );
+      if ( nch == 2 ) // Cas especial Canal 3
+        op_set_fnum1 ( chn, &(_chns[2].slots[SLOT4]), data, false );
       channel_set_fnum1 ( chn, data, false );
       break;
     case 0xa4:
-      if ( nch == 2 && chn->op_freqs ) // Cas especial Canal 3
-        op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT1]), data, false );
+      if ( nch == 2 ) // Cas especial Canal 3
+        op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT4]), data, false );
       channel_set_fnum2_block ( chn, data, false );
       break;
     case 0xa8:
       // NOTA!!! nch fa referència a l'operador del canal 3.
-      // 0 - Operador 2
-      // 1 - Operador 3
-      // 2 - Operador 4
+      // 0 - SLOT3
+      // 1 - SLOT1
+      // 2 - SLOT2
       // L'operador 1 està en la posició habitual per al channel 3.
-      if ( nch >= 3 ) return;
+      if ( nch >= 3 ) return; // Inclou valor 3 i part2
       switch ( nch )
         {
         case 0:
-          op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT2]), data, false );
-          break;
-        case 1:
           op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT3]), data, false );
           break;
+        case 1:
+          op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT1]), data, false );
+          break;
         case 2:
-          op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT4]), data, false );
+          op_set_fnum1 ( &_chns[2], &(_chns[2].slots[SLOT2]), data, false );
           break;
         }
       break;
     case 0xac:
-      if ( nch >= 3 ) return;
+      if ( nch >= 3 ) return; // Inclou valor 3 i part2
       switch ( nch )
         {
         case 0:
-          op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT2]), data, false );
-          break;
-        case 1:
           op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT3]), data, false );
           break;
+        case 1:
+          op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT1]), data, false );
+          break;
         case 2:
-          op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT4]), data, false );
+          op_set_fnum2_block ( chn, &(_chns[2].slots[SLOT2]), data, false );
           break;
         }
       break;
@@ -2025,7 +2042,7 @@ MD_fm_part1_set_addr (
   if ( data < 0x22 || data >= 0xB8 )
     {
       _warning ( _udata, "FM: adreça de part1 fora de rang: %02X", data );
-      return;
+      //return; AVISA PERÒ NO IMPEDEIX
     }
   _current_addr.addr= (uint8_t) data;
   _current_addr.ispart1= true;
@@ -2045,7 +2062,7 @@ MD_fm_part1_write_data (
   clock ();
   
   if ( !_current_addr.ispart1 ) return;
-
+  
   // Registres globals
   if ( _current_addr.addr < 0x30 )
     {
@@ -2083,7 +2100,7 @@ MD_fm_part1_write_data (
     }
   
   // Registres canals.
-  else
+  else if ( _current_addr.addr < 0xb8 )
     {
       if ( (c= _current_addr.addr&0x3) == 3 ) return;
       write_channel_reg ( c, _current_addr.addr&0xFC, data );
@@ -2099,11 +2116,11 @@ MD_fm_part2_set_addr (
 {
   
   clock ();
-  
+
   if ( data < 0x30 || data >= 0xB8 )
     {
       _warning ( _udata, "FM: adreça de part2 fora de rang: %02X", data );
-      return;
+      //return; AVISA PERÒ NO IMPEDEIX
     }
   _current_addr.addr= (uint8_t) data;
   _current_addr.ispart1= false;
@@ -2125,18 +2142,21 @@ MD_fm_part2_write_data (
   if ( _current_addr.ispart1 ) return;
   
   // Registres slots (operadors).
-  if ( _current_addr.addr < 0xa0 )
+  if ( _current_addr.addr >= 0x30 )
     {
-      if ( (c= _current_addr.addr&0x3) == 3 ) return;
-      write_slot_reg ( &_chns[c+3], (_current_addr.addr>>2)&0x3,
-                       _current_addr.addr&0xF0, data );
-    }
-  
-  // Registres canals.
-  else 
-    {
-      if ( (c= _current_addr.addr&0x3) == 3 ) return;
-      write_channel_reg ( c+3, _current_addr.addr&0xFC, data );
+      if ( _current_addr.addr < 0xa0 )
+        {
+          if ( (c= _current_addr.addr&0x3) == 3 ) return;
+          write_slot_reg ( &_chns[c+3], (_current_addr.addr>>2)&0x3,
+                           _current_addr.addr&0xF0, data );
+        }
+      
+      // Registres canals.
+      else if ( _current_addr.addr < 0xb8 )
+        {
+          if ( (c= _current_addr.addr&0x3) == 3 ) return;
+          write_channel_reg ( c+3, _current_addr.addr&0xFC, data );
+        }
     }
   
 } // end MD_fm_part2_write_data
@@ -2167,10 +2187,10 @@ MD_fm_status (void)
 {
 
   MDu8 ret;
+
   
   clock ();
   ret= (MDu8) _timers.status;
-
   
   return ret;
   
@@ -2182,8 +2202,17 @@ MD_fm_save_state (
                   FILE *f
                   )
 {
-  printf("SAVE STATE\n");
-  return -1;
+
+  SAVE ( _lfo );
+  SAVE ( _chns );
+  SAVE ( _regs );
+  SAVE ( _dac );
+  SAVE ( _timers );
+  SAVE ( _timing );
+  SAVE ( _current_addr );
+  
+  return 0;
+  
 } // end MD_fm_save_state
 
 
@@ -2192,6 +2221,35 @@ MD_fm_load_state (
                   FILE *f
                   )
 {
-  printf("LOAD STATE\n");
-  return -1;
+
+  int c,s;
+
+  
+  LOAD ( _lfo );
+  CHECK ( _lfo.freq >= 0 && _lfo.freq < 8 );
+  LOAD ( _chns );
+  for ( c= 0; c < 6; ++c )
+    {
+      CHECK ( _chns[c].pms >= 0 && _chns[c].pms < 8 );
+      CHECK ( _chns[c].ams >= 0 && _chns[c].ams < 4 );
+      for ( s= 0; s < 4; ++s )
+        {
+          CHECK ( _chns[c].slots[s].eg.ar_rate >= 0 &&
+                  _chns[c].slots[s].eg.ar_rate < 64 );
+          CHECK ( _chns[c].slots[s].eg.dr_rate >= 0 &&
+                  _chns[c].slots[s].eg.dr_rate < 64 );
+          CHECK ( _chns[c].slots[s].eg.sr_rate >= 0 &&
+                  _chns[c].slots[s].eg.sr_rate < 64 );
+          CHECK ( _chns[c].slots[s].eg.rr_rate >= 0 &&
+                  _chns[c].slots[s].eg.rr_rate < 64 );
+        }
+    }
+  LOAD ( _regs );
+  LOAD ( _dac );
+  LOAD ( _timers );
+  LOAD ( _timing );
+  LOAD ( _current_addr );
+  
+  return 0;
+  
 } // end MD_fm_load_state
