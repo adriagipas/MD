@@ -115,7 +115,7 @@ render_samples (void)
 {
 
   double sample;
-  int i,pos;
+  int i;
   int32_t psg_sample,fm_left,fm_right,val;
   
   
