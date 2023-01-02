@@ -283,11 +283,11 @@ MD_audio_fm_play (
 
 void
 MD_audio_psg_play (
-        	   const double sample
+                   const double sample
         	   )
 {
-
-  int pos,i;
+  
+  int pos;
   
   
   // NOTA!!! Açò sols pot passar si es generen de colp moltes mostres.
