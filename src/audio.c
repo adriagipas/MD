@@ -49,13 +49,16 @@
 /* MACROS */
 /**********/
 
+#define PSG_STEPS 5
+#define PSG_SAMPLES_PER_FM 5
+
 #define PSG_CYCLES 240
 
 #define FM_CYCLES 1008
 
 // Per si de cas es generen de colp moltes mostres
 #define BUF_SIZE 50
-#define PSG_BUF_SIZE (BUF_SIZE*PSG_CYCLES)
+#define PSG_BUF_SIZE (BUF_SIZE*PSG_SAMPLES_PER_FM)
 
 
 #define SAVE(VAR)                                               \
@@ -66,6 +69,53 @@
 
 #define CHECK(COND)                             \
   if ( !(COND) ) return -1;
+
+
+
+
+/*************/
+/* CONSTANTS */
+/*************/
+
+// Cada mostra FM es corresponen amb 4.2 de PSG. Açò serveix per a
+// passar de PSG a FM a partir de 5 mostres, consumint 4 mostres cada
+// vegada.
+static const struct
+{
+  int    discard;
+  double ws[PSG_SAMPLES_PER_FM];
+} PSG_STEP_WEIGHTS[PSG_STEPS]= {
+
+  // STEP 0: 240 + 240 + 240 + 240 + 48
+  { 4,
+    {0.23809523809523808,0.23809523809523808,0.23809523809523808,
+     0.23809523809523808,0.047619047619047616}
+  },
+
+  // STEP 1: 192 + 240 + 240 + 240 + 96
+  { 4,
+    {0.19047619047619047,0.23809523809523808,0.23809523809523808,
+     0.23809523809523808,0.09523809523809523}
+  },
+
+  // STEP 2: 144 + 240 + 240 + 240 + 144
+  { 4,
+    {0.14285714285714285,0.23809523809523808,0.23809523809523808,
+     0.23809523809523808,0.14285714285714285}
+  },
+
+  // STEP 3: 96 + 240 + 240 + 240 + 192
+  { 4,
+    {0.09523809523809523,0.23809523809523808,0.23809523809523808,
+     0.23809523809523808,0.19047619047619047}
+  },
+
+  // STEP 4: 48 + 240 + 240 + 240 + 240
+  { 5,
+    {0.047619047619047616,0.23809523809523808,0.23809523809523808,
+     0.23809523809523808,0.23809523809523808}
+  }
+};
 
 
 
@@ -84,6 +134,7 @@ static struct
   double v[PSG_BUF_SIZE];
   int    p;
   int    N;
+  int    step;
 } _psg;
 
 
@@ -115,22 +166,23 @@ render_samples (void)
 {
 
   double sample;
-  int i;
+  int i,pos;
   int32_t psg_sample,fm_left,fm_right,val;
   
   
-  while ( _fm.N > 0 && _psg.N > FM_CYCLES )
+  while ( _fm.N > 0 && _psg.N >= PSG_SAMPLES_PER_FM )
     {
 
       // Renderitza mostra PSG.
       sample= 0.0;
-      for ( i= 0; i < FM_CYCLES; ++i )
+      for ( i= 0; i < PSG_SAMPLES_PER_FM; ++i )
         {
-          sample+= _psg.v[_psg.p];
-          _psg.p= (_psg.p+1)%PSG_BUF_SIZE;
+          pos= (_psg.p+i)%PSG_BUF_SIZE;
+          sample+= _psg.v[pos]*PSG_STEP_WEIGHTS[_psg.step].ws[i];
         }
-      sample/= FM_CYCLES;
-      _psg.N-= FM_CYCLES;
+      _psg.N-= PSG_STEP_WEIGHTS[_psg.step].discard;
+      _psg.p= (_psg.p+PSG_STEP_WEIGHTS[_psg.step].discard)%PSG_BUF_SIZE;
+      _psg.step= (_psg.step+1)%PSG_STEPS;
       psg_sample= (int32_t) ((sample*8192*4) + 0.5);
       
       // Obté mostres FM.
@@ -195,6 +247,7 @@ MD_audio_init_state (void)
   memset ( _psg.v, 0, sizeof(_psg.v) );
   _psg.N= 0;
   _psg.p= 0;
+  _psg.step= 0;
   
 } // end MD_audio_init_state
 
@@ -246,12 +299,9 @@ MD_audio_psg_play (
       return;
     }
 
-  for ( i= 0; i < PSG_CYCLES; ++i )
-    {
-      pos= (_psg.p+_psg.N+i)%PSG_BUF_SIZE;
-      _psg.v[pos]= sample;
-    }
-  _psg.N+= PSG_CYCLES;
+  pos= (_psg.p+_psg.N)%PSG_BUF_SIZE;
+  _psg.v[pos]= sample;
+  ++_psg.N;
   
   render_samples ();
   
@@ -282,6 +332,7 @@ MD_audio_load_state (
   LOAD ( _psg );
   CHECK ( _psg.p >= 0 && _psg.p < PSG_BUF_SIZE );
   CHECK ( _psg.N >= 0 && _psg.N <= PSG_BUF_SIZE );
+  CHECK ( _psg.step >= 0 && _psg.step < PSG_STEPS );
   LOAD ( _fm );
   CHECK ( _fm.p >= 0 && _fm.p < BUF_SIZE );
   CHECK ( _fm.N >= 0 && _fm.N <= BUF_SIZE );
