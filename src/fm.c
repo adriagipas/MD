@@ -870,7 +870,7 @@ op_set_sl_rr (
   op_update_eg_rr_rate ( op );
   op->eg.sustain= (int16_t) (val>>4);
   if ( op->eg.sustain == 0xF )
-    op->eg.sustain|= 0x01;
+    op->eg.sustain|= 0x10;
   op->eg.sustain<<= 5;
   
 } // end op_set_sl_rr
